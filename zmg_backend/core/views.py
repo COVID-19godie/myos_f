@@ -425,54 +425,91 @@ class DesktopIconViewSet(viewsets.ModelViewSet):
         try:
             # 1. 获取桌面图标
             icon = self.get_object()
+            
+            # 安全检查：确保图标存在且属于当前用户
+            if icon.user != request.user:
+                return Response({'status': 'error', 'msg': '无权删除此项目'}, status=403)
+
             # 获取图标指向的真实对象 (可能是 文件夹Category 或 文件Resource)
             obj = icon.content_object
 
-            print(f">>> 正在删除: {icon.title} (类型: {type(obj).__name__ if obj else 'None'})")
+            print(f">>> 正在删除: {icon.title} (类型: {type(obj).__name__ if obj else 'None'}, ID: {pk})")
 
-            # 2. 情况A：如果是文件夹 (Category)
-            if isinstance(obj, Category):
-                # 逻辑：先删除文件夹内的所有桌面图标，防止残留
-                # 注意：这里做了一个简化，直接删除数据库层面的关联
-                DesktopIcon.objects.filter(parent_folder=obj).delete()
-
-                # 删除文件夹本体 (Django 会级联删除文件夹内的文件资源)
-                obj.delete()
-                # 最后删除图标
-                icon.delete()
-                print("✅ 文件夹已删除")
-
-            # 3. 情况B：如果是文件/应用 (Resource)
-            elif isinstance(obj, Resource):
-                # 特殊处理：如果是 H5 应用，尝试删除物理文件目录
-                if obj.kind == 'link' and obj.link and '/h5apps/' in obj.link:
-                    import shutil
-                    from django.conf import settings
+            # 2. 情况A：如果有有效对象
+            if obj:
+                # 2.1 如果是文件夹 (Category)
+                if isinstance(obj, Category):
                     try:
-                        # 解析路径: .../media/h5apps/xxx/
-                        rel_path = obj.link.replace(settings.MEDIA_URL, '')
-                        if 'h5apps' in rel_path:
-                            parts = rel_path.split('/')
-                            # 路径通常是 h5apps/app_name/index.html
-                            if len(parts) > 1:
-                                app_root = os.path.join(settings.MEDIA_ROOT, parts[0], parts[1])
-                                if os.path.exists(app_root):
-                                    shutil.rmtree(app_root)
-                                    print(f"✅ 物理文件夹已清除: {app_root}")
-                    except Exception as e:
-                        print(f"⚠️ 物理文件清理出错 (不影响数据库删除): {e}")
+                        # 先删除该文件夹内的所有桌面图标（避免外键约束错误）
+                        DesktopIcon.objects.filter(parent_folder=obj).delete()
+                        
+                        # 删除文件夹本体
+                        obj.delete()
+                        print("✅ 文件夹已删除")
+                    except Exception as folder_error:
+                        print(f"❌ 删除文件夹时出错: {folder_error}")
+                        # 即使文件夹删除失败，也继续删除图标
+                        
+                # 2.2 如果是文件/应用 (Resource)
+                elif isinstance(obj, Resource):
+                    # 特殊处理：如果是 H5 应用，尝试删除物理文件目录
+                    if obj.kind == 'link' and obj.link and '/h5apps/' in obj.link:
+                        import shutil
+                        from django.conf import settings
+                        try:
+                            # 更安全的路径解析
+                            if settings.MEDIA_URL.startswith('/'):
+                                clean_media_url = settings.MEDIA_URL[1:]  # 移除开头的 /
+                            else:
+                                clean_media_url = settings.MEDIA_URL
+                                
+                            if obj.link.startswith('/'):
+                                clean_link = obj.link[1:]  # 移除开头的 /
+                            else:
+                                clean_link = obj.link
+                            
+                            # 解析相对路径
+                            if clean_link.startswith(clean_media_url):
+                                rel_path = clean_link[len(clean_media_url):]
+                            else:
+                                rel_path = clean_link
+                                
+                            if 'h5apps' in rel_path:
+                                parts = [p for p in rel_path.split('/') if p]  # 过滤空字符串
+                                # 路径格式: h5apps/app_name_hash/filename
+                                if len(parts) >= 2:
+                                    app_root = os.path.join(settings.MEDIA_ROOT, parts[0], parts[1])
+                                    if os.path.exists(app_root):
+                                        shutil.rmtree(app_root)
+                                        print(f"✅ 物理文件夹已清除: {app_root}")
+                                    else:
+                                        print(f"⚠️ 物理文件夹不存在: {app_root}")
+                                else:
+                                    print(f"⚠️ H5应用路径格式不正确: {rel_path}")
+                        except Exception as e:
+                            print(f"⚠️ 物理文件清理出错 (不影响数据库删除): {e}")
+                            # 记录错误但不中断删除流程
 
-                # 删除文件对象 (Django会级联删除相关的icon)
-                obj.delete()
-                print("✅ 文件资源已删除")
-
-            # 4. 情况C：数据不一致 (有图标没对象)
-            else:
+                    # 删除文件对象
+                    try:
+                        obj.delete()
+                        print("✅ 文件资源已删除")
+                    except Exception as resource_error:
+                        print(f"❌ 删除资源时出错: {resource_error}")
+                        # 即使资源删除失败，也继续删除图标
+            
+            # 3. 无论对象是否存在或删除是否成功，都删除桌面图标本身
+            try:
                 icon.delete()
-                print("✅ 空图标已清理")
+                print("✅ 桌面图标已删除")
+            except Exception as icon_error:
+                print(f"❌ 删除图标时出错: {icon_error}")
+                return Response({'status': 'error', 'msg': f'删除图标失败: {str(icon_error)}'}, status=500)
 
             return Response({'status': 'success', 'msg': '删除成功'})
 
+        except DesktopIcon.DoesNotExist:
+            return Response({'status': 'error', 'msg': '图标不存在'}, status=404)
         except Exception as e:
             # 打印详细错误方便调试
             import traceback
