@@ -9,6 +9,51 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     
+    <!-- 登录检查样式 -->
+    <style>
+        .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            backdrop-filter: blur(10px);
+        }
+        
+        .login-prompt {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+        
+        .login-prompt h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .login-btn {
+            background: #007aff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        
+        .login-btn:hover {
+            background: #0056d6;
+        }
+    </style>
+    
     <style>
         /* ================= 核心变量与重置 ================= */
         :root {
@@ -942,6 +987,192 @@
         };
 
         App.init();
+    </script>
+    
+    <!-- JWT 认证管理 -->
+    <script>
+        const API_BASE = '/api';
+        
+        // 检查登录状态
+        function checkAuth() {
+            const token = localStorage.getItem('access_token');
+            const refreshToken = localStorage.getItem('refresh_token');
+            
+            if (!token || !refreshToken) {
+                showLoginPrompt();
+                return false;
+            }
+            
+            return true;
+        }
+        
+        // 显示登录提示
+        function showLoginPrompt() {
+            const overlay = document.createElement('div');
+            overlay.className = 'login-overlay';
+            overlay.innerHTML = `
+                <div class="login-prompt">
+                    <h3>请先登录</h3>
+                    <p>您需要登录才能访问桌面系统</p>
+                    <button class="login-btn" onclick="goToLogin()">前往登录</button>
+                    <button class="login-btn" onclick="tryGuestMode()" style="background: #666;">访客模式</button>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+        }
+        
+        // 跳转到登录页面
+        function goToLogin() {
+            window.location.href = '/login.html';
+        }
+        
+        // 尝试访客模式
+        function tryGuestMode() {
+            // 尝试使用默认账户登录
+            attemptGuestLogin();
+        }
+        
+        // 尝试访客登录
+        async function attemptGuestLogin() {
+            try {
+                const response = await fetch(`${API_BASE}/token/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: 'guest',
+                        password: 'guest123'
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('access_token', data.access);
+                    localStorage.setItem('refresh_token', data.refresh);
+                    location.reload();
+                } else {
+                    alert('访客账户不可用，请联系管理员创建账户');
+                }
+            } catch (error) {
+                alert('网络错误，请检查后端服务');
+            }
+        }
+        
+        // 刷新token
+        async function refreshToken() {
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (!refreshToken) return false;
+            
+            try {
+                const response = await fetch(`${API_BASE}/token/refresh/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ refresh: refreshToken })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('access_token', data.access);
+                    return true;
+                }
+            } catch (error) {
+                console.error('Token refresh failed:', error);
+            }
+            return false;
+        }
+        
+        // 获取认证头
+        function getAuthHeaders() {
+            const token = localStorage.getItem('access_token');
+            return {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            };
+        }
+        
+        // 修改API请求函数，添加认证
+        function createAuthenticatedAPI() {
+            const originalReq = window.req;
+            
+            window.req = async function(url, method = 'GET', data = null) {
+                // 检查认证
+                if (!checkAuth()) {
+                    throw new Error('未认证');
+                }
+                
+                const headers = getAuthHeaders();
+                
+                try {
+                    const response = await fetch(API_BASE + url, {
+                        method: method,
+                        headers: headers,
+                        body: data ? JSON.stringify(data) : null
+                    });
+                    
+                    // 如果是401错误，尝试刷新token
+                    if (response.status === 401) {
+                        const refreshed = await refreshToken();
+                        if (refreshed) {
+                            // 重新发送请求
+                            return await window.req(url, method, data);
+                        } else {
+                            // 刷新失败，跳转到登录
+                            goToLogin();
+                            return null;
+                        }
+                    }
+                    
+                    return response;
+                } catch (error) {
+                    console.error('API request failed:', error);
+                    throw error;
+                }
+            };
+        }
+        
+        // 页面加载时检查认证
+        document.addEventListener('DOMContentLoaded', function() {
+            if (checkAuth()) {
+                createAuthenticatedAPI();
+            }
+        });
+        
+        // 添加登出功能
+        function logout() {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            location.reload();
+        }
+        
+        // 在任务栏添加用户信息
+        function addUserInfoToTaskbar() {
+            const taskbar = document.querySelector('.taskbar');
+            if (taskbar) {
+                const userInfo = document.createElement('div');
+                userInfo.className = 'user-info';
+                userInfo.innerHTML = `
+                    <span style="color: white; margin-right: 10px;">用户: ${getUsername() || 'Guest'}</span>
+                    <button onclick="logout()" style="background: transparent; border: 1px solid white; color: white; padding: 2px 8px; border-radius: 3px; cursor: pointer;">登出</button>
+                `;
+                taskbar.appendChild(userInfo);
+            }
+        }
+        
+        // 获取用户名（简化版）
+        function getUsername() {
+            // 可以从token解码或从API获取
+            return '用户';
+        }
+        
+        // 初始化用户界面
+        if (checkAuth()) {
+            document.addEventListener('DOMContentLoaded', function() {
+                addUserInfoToTaskbar();
+            });
+        }
     </script>
 </body>
 </html>

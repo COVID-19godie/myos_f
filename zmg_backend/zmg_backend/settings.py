@@ -79,7 +79,7 @@ STATIC_URL = 'static/'
 
 # 告诉 Django 除了各 App 内部的 static，还要去根目录的 static 文件夹找文件
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, "static"),
+    BASE_DIR / "static",
 ]
 
 # 生产环境使用的静态文件根目录（执行 collectstatic 时使用）
