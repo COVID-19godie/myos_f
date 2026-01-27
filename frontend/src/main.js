@@ -1,7 +1,7 @@
 // 前端配置 - 分离后的API路径配置
 const API_BASE = process.env.NODE_ENV === 'production' 
     ? 'http://your-server-domain.com/api'  // 生产环境
-    : 'http://localhost:8000/api';           // 开发环境
+    : 'http://localhost:8001/api';           // 开发环境
 
 const App = {
     token: localStorage.getItem('token'),
