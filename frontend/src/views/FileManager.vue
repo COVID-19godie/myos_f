@@ -1,21 +1,21 @@
-<!-- src/views/Browser.vue -->
+<!-- src/views/FileManager.vue -->
 <template>
-  <div class="browser">
-    <h2>浏览器</h2>
-    <p>这里是浏览器的内容...</p>
+  <div class="file-manager">
+    <h2>文件管理器</h2>
+    <p>这里是文件管理器的内容...</p>
     <div class="placeholder-content">
-      <el-icon size="64"><Monitor /></el-icon>
-      <p>浏览器功能开发中...</p>
+      <el-icon size="64"><FolderOpened /></el-icon>
+      <p>文件管理功能开发中...</p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-// 浏览器视图组件
+// 文件管理器视图组件
 </script>
 
 <style scoped>
-.browser {
+.file-manager {
   padding: 20px;
   color: var(--os-text-primary);
   height: 100%;

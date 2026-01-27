@@ -36,7 +36,8 @@ export interface Category {
 export interface WindowInstance {
   id: string
   title: string
-  type: 'folder' | 'iframe' | 'app' | 'pdf' | 'image'
+  type: 'folder' | 'iframe' | 'app' | 'pdf' | 'image' | 'settings' | 'file-manager' | 'browser'
+  icon?: string
   content?: any
   zIndex: number
   isMinimized: boolean

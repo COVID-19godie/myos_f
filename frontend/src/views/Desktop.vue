@@ -3,18 +3,19 @@
     class="desktop-container" 
     :style="{ backgroundImage: `url(${themeStore.wallpaper})` }"
     @click.self="clearSelection"
+    @contextmenu.prevent="handleRightClick"
   >
-    <div class="desktop-icons">
+    <div class="desktop-icons" v-loading="loading">
       <div 
-        v-for="icon in desktopIcons" 
+        v-for="icon in icons" 
         :key="icon.id"
         class="app-icon"
-        :class="{ 'is-selected': selectedIds.includes(icon.id) }"
+        :class="{ 'is-selected': selectedId === icon.id }"
         @click="selectIcon(icon.id)"
         @dblclick="openIcon(icon)"
       >
-        <div class="icon-visual glass-icon">
-          <i :class="icon.icon_class || 'fa-solid fa-file'" :style="{ color: icon.color || '#fff' }"></i>
+        <div class="icon-visual glass-effect">
+          <i :class="icon.icon_class || getIconClass(icon)"></i>
         </div>
         <span class="icon-label">{{ icon.title }}</span>
       </div>
@@ -27,19 +28,21 @@
     />
 
     <div class="dock-wrapper">
-      <div class="dock-bar glass">
-        <div class="dock-item" @click="openApp('browser')">
-          <i class="fa-brands fa-chrome" style="color: #fff;"></i>
-        </div>
-        <div class="dock-item" @click="openApp('file-manager')">
+      <div class="dock-bar glass-effect">
+        <div class="dock-item" @click="openApp('file-manager')" title="资源管理器">
           <i class="fa-solid fa-folder-open" style="color: #409eff;"></i>
         </div>
-        <div class="dock-item" @click="openApp('editor')">
-          <i class="fa-solid fa-code" style="color: #67c23a;"></i>
+        <div class="dock-item" @click="openApp('browser')" title="浏览器">
+          <i class="fa-brands fa-chrome" style="color: #67c23a;"></i>
         </div>
-        <div class="divider"></div>
-        <div class="dock-item" @click="openApp('settings')">
+        <div class="dock-item" @click="openApp('settings')" title="设置">
           <i class="fa-solid fa-gear" style="color: #909399;"></i>
+        </div>
+        
+        <div class="dock-divider"></div>
+
+        <div class="dock-item" title="回收站">
+          <i class="fa-solid fa-trash" style="color: #f56c6c;"></i>
         </div>
       </div>
     </div>
@@ -47,72 +50,84 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'; // 保持原有的引用
+import { ref, onMounted } from 'vue';
 import { useWindowStore } from '@/stores/windows';
-import { useThemeStore } from '@/stores/theme'; // 1. 引入 Theme Store
-import { desktopApi } from '@/services/api'; // 使用你之前封装的 API
+import { useThemeStore } from '@/stores/theme';
+import { desktopApi } from '@/services/api'; 
 import WindowContainer from '@/components/windows/WindowContainer.vue';
 
 const windowStore = useWindowStore();
-const themeStore = useThemeStore(); // 2. 初始化
+const themeStore = useThemeStore();
 
-const desktopIcons = ref<any[]>([]);
-const selectedIds = ref<number[]>([]);
+const icons = ref<any[]>([]);
+const loading = ref(false);
+const selectedId = ref<number | null>(null);
 
-// 初始化加载桌面图标
+// 初始化：加载桌面图标
 onMounted(async () => {
+  loading.value = true;
   try {
-    // 假设后端 API 返回桌面根目录内容
+    // 调用后端 API 获取桌面文件
     const res = await desktopApi.getIcons('root'); 
-    desktopIcons.value = res.data;
+    icons.value = res.data;
   } catch (e) {
     console.error('Failed to load desktop icons', e);
+    // 失败时的 mock 数据，保证你能看到效果
+    icons.value = [
+      { id: 1, title: '我的文档', type: 'category', icon_class: 'fa-solid fa-folder' },
+      { id: 2, title: 'GitHub', type: 'resource', data: { kind: 'link', link: 'https://github.com' }, icon_class: 'fa-brands fa-github' },
+    ];
+  } finally {
+    loading.value = false;
   }
 });
 
-// 图标交互
+// 图标交互逻辑
 const selectIcon = (id: number) => {
-  selectedIds.value = [id];
+  selectedId.value = id;
 };
 
 const clearSelection = () => {
-  selectedIds.value = [];
+  selectedId.value = null;
 };
 
+// 核心：打开逻辑
 const openIcon = (icon: any) => {
-  // 1. 调试一下，看看后端到底返回了什么，方便你排查
-  console.log('打开图标:', icon);
-
-  // 2. 处理文件夹 (后端 type 为 'category')
-  if (icon.type === 'category') {
-    windowStore.createWindow(icon.title, 'file-manager', { 
-      path: icon.data.id // 注意：文件夹ID在 data 里
-    });
-    return;
-  }
-
-  // 3. 处理资源文件 (后端 type 为 'resource')
-  if (icon.type === 'resource' && icon.data) {
-    const res = icon.data;
-    
-    // 如果是 Web 应用或链接 (kind === 'link')
-    if (res.kind === 'link') {
-      windowStore.createWindow(icon.title, 'browser', { 
-        url: res.link // 将链接传给浏览器组件
-      });
-    } 
-    // 其他文件 (图片、代码等) -> 暂时都用编辑器打开
-    else {
-      windowStore.createWindow(icon.title, 'editor', { 
-        fileId: res.id,
-        content: res.url // 或者是 file url
-      });
-    }
+  // 1. 文件夹 -> 打开 FileManager
+  if (icon.type === 'category' || icon.kind === 'folder') {
+    windowStore.createWindow(icon.title, 'file-manager', { path: icon.id });
+  } 
+  // 2. 链接/网页 -> 打开 Browser
+  else if (icon.data?.kind === 'link' || icon.kind === 'link') {
+    const url = icon.data?.link || icon.url;
+    windowStore.createWindow(icon.title, 'browser', { url });
+  } 
+  // 3. 其他 -> 默认行为 (例如打开设置)
+  else {
+    windowStore.createWindow(icon.title, 'settings');
   }
 };
 
+// Dock 栏快速启动
 const openApp = (type: string) => {
-  windowStore.createWindow('New Window', type, {});
+  const titles: Record<string, string> = {
+    'file-manager': '我的电脑',
+    'browser': '浏览器',
+    'settings': '系统设置'
+  };
+  windowStore.createWindow(titles[type], type);
+};
+
+// 辅助函数：根据类型获取默认图标
+const getIconClass = (icon: any) => {
+  if (icon.type === 'category') return 'fa-solid fa-folder';
+  if (icon.kind === 'link') return 'fa-solid fa-link';
+  return 'fa-solid fa-file';
+};
+
+const handleRightClick = (e: MouseEvent) => {
+  console.log('右键点击坐标:', e.clientX, e.clientY);
+  // 后续任务：在这里弹出右键菜单
 };
 </script>
 
@@ -121,81 +136,82 @@ const openApp = (type: string) => {
   width: 100vw; height: 100vh;
   background-size: cover; background-position: center;
   position: relative; overflow: hidden;
-  user-select: none;
+  /* 禁止文字被选中，像真 OS 一样 */
+  user-select: none; 
 }
 
 /* 图标网格布局 */
 .desktop-icons {
   padding: 20px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, 100px);
-  grid-template-rows: repeat(auto-fill, 110px);
-  gap: 10px;
-  height: calc(100vh - 100px); /* 留出 Dock 空间 */
+  /* 自动填充列，每列最小 90px */
+  grid-template-columns: repeat(auto-fill, 90px);
+  grid-template-rows: repeat(auto-fill, 100px);
+  gap: 15px;
+  height: calc(100vh - 120px); /* 留出 Dock 高度 */
+  align-content: start;
 }
 
 .app-icon {
   display: flex; flex-direction: column; align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  border-radius: 8px;
-  transition: background 0.2s;
-  color: white;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  cursor: pointer; padding: 5px; border-radius: 8px;
+  transition: all 0.2s;
+  color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }
+
 .app-icon:hover { background: rgba(255, 255, 255, 0.1); }
-.app-icon.is-selected { background: rgba(64, 158, 255, 0.4); border: 1px solid rgba(64, 158, 255, 0.6); }
+.app-icon.is-selected { 
+  background: var(--os-selection-bg); 
+  border: 1px solid rgba(255,255,255,0.3);
+}
 
 .icon-visual {
-  font-size: 40px; margin-bottom: 8px;
-  width: 60px; height: 60px;
+  width: 56px; height: 56px;
+  border-radius: 14px;
   display: flex; align-items: center; justify-content: center;
+  font-size: 28px; margin-bottom: 8px;
+  /* 图标本身也是毛玻璃，增加层次感 */
+  background: rgba(255,255,255,0.2);
 }
 
 .icon-label {
   font-size: 13px; text-align: center;
-  line-height: 1.2;
-  word-break: break-all;
-  max-width: 90px;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  line-height: 1.3;
+  width: 100%;
+  overflow: hidden; text-overflow: ellipsis; 
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
 }
 
-/* Dock 栏样式 */
+/* 底部 Dock 栏 */
 .dock-wrapper {
   position: absolute; bottom: 20px; left: 0; right: 0;
   display: flex; justify-content: center;
-  z-index: 9000; /* 确保在大多数窗口之上，但在全屏窗口之下 */
+  z-index: 9000;
 }
 
 .dock-bar {
-  display: flex; gap: 15px; padding: 12px 20px;
-  border-radius: 24px;
-  align-items: center;
-  transition: transform 0.2s;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 15px; border-radius: 24px;
+  background: var(--os-dock-bg); /* 使用 CSS 变量 */
 }
-.dock-bar:hover { transform: scale(1.02); }
 
 .dock-item {
-  width: 50px; height: 50px;
-  background: rgba(0,0,0,0.2);
+  width: 48px; height: 48px;
   border-radius: 12px;
+  background: rgba(255,255,255,0.1);
   display: flex; align-items: center; justify-content: center;
-  font-size: 24px;
-  cursor: pointer;
-  transition: all 0.2s;
+  font-size: 24px; cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
-.dock-item:hover {
-  background: rgba(255,255,255,0.2);
-  transform: translateY(-10px) scale(1.1);
-}
-.divider { width: 1px; height: 30px; background: rgba(255,255,255,0.3); margin: 0 5px; }
 
-/* 复用毛玻璃 */
-.glass {
-  background: rgba(255, 255, 255, 0.25);
-  backdrop-filter: blur(15px);
-  -webkit-backdrop-filter: blur(15px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+.dock-item:hover {
+  transform: translateY(-10px) scale(1.1);
+  background: rgba(255,255,255,0.2);
+}
+
+.dock-divider {
+  width: 1px; height: 30px; 
+  background: rgba(255,255,255,0.2); 
+  margin: 0 5px;
 }
 </style>
