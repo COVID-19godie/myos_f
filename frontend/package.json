@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "serve": "python -m http.server 8080"
+    "serve": "python -m http.server 8080",
+    "launcher": "vite --open launcher.html"
   },
   "keywords": [
     "zmg",
