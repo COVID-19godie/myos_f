@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZMG Cloud OS</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
+    <!-- 登录检查样式 -->
+    <style>
+        .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            backdrop-filter: blur(10px);
+        }
+        
+        .login-prompt {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+        
+        .login-prompt h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .login-btn {
+            background: #007aff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        
+        .login-btn:hover {
+            background: #0056d6;
+        }
+    </style>
+    
+    <style>
+        /* ================= 核心变量与重置 ================= */
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.4);
+            --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+            --backdrop-blur: blur(12px);
+            --accent-color: #007aff;
+            --text-color: #333;
+            --win-header-h: 40px;
+        }
+
+        * { box-sizing: border-box; user-select: none; outline: none; }
+        body { 
+            margin: 0; overflow: hidden; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; 
+            background-color: #333;
+            background-size: cover; background-position: center; transition: background 0.5s;
+        }
+
+        /* 动态壁纸遮罩 (让文字更清晰) */
+        body::before {
+            content: ''; position: absolute; top:0; left:0; width:100%; height:100%;
+            background: rgba(0,0,0,0.1); z-index: 0; pointer-events: none;
+        }
+
+        /* ================= 桌面图标系统 ================= */
+        #desktop { position: fixed; top: 0; left: 0; width: 100%; height: calc(100% - 80px); padding: 10px; z-index: 1; }
+        .icon-grid { 
+            display: flex; flex-direction: column; flex-wrap: wrap; 
+            height: 100%; align-content: flex-start; gap: 15px; 
+        }
+        
+        .icon {
+            width: 90px; display: flex; flex-direction: column; align-items: center; 
+            cursor: pointer; padding: 5px; border-radius: 8px; transition: 0.2s; position: relative;
+        }
+        .icon:hover { background: rgba(255,255,255,0.2); backdrop-filter: blur(5px); }
+        .icon:active { transform: scale(0.95); }
+        
+        .icon-body {
+            width: 64px; height: 64px; display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,0.9); border-radius: 14px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); font-size: 32px; overflow: hidden; position: relative;
+        }
+        /* 视频/图片缩略图覆盖 */
+        .icon-thumb { width: 100%; height: 100%; object-fit: cover; }
+
+        .icon-text {
+            margin-top: 6px; font-size: 13px; color: white; text-align: center; 
+            text-shadow: 0 1px 3px rgba(0,0,0,0.8); width: 100%; 
+            overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 2px 4px;
+        }
+
+        /* ================= 现代化窗口系统 ================= */
+        .window {
+            position: absolute; 
+            background: var(--glass-bg);
+            backdrop-filter: var(--backdrop-blur);
+            -webkit-backdrop-filter: var(--backdrop-blur);
+            border: 1px solid var(--glass-border);
+            border-radius: 10px; 
+            box-shadow: var(--glass-shadow);
+            display: flex; flex-direction: column; overflow: hidden; 
+            min-width: 300px; min-height: 200px;
+            opacity: 0; transform: scale(0.95); transition: opacity 0.2s, transform 0.2s, width 0.3s, height 0.3s, top 0.3s, left 0.3s;
+        }
+        .window.open { opacity: 1; transform: scale(1); }
+        .window.minimized { 
+            opacity: 0; transform: scale(0.5) translateY(500px); pointer-events: none; 
+        }
+
+        .win-header {
+            height: var(--win-header-h); background: rgba(255,255,255,0.4); 
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 15px; cursor: move; border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+        .win-title { font-weight: 600; font-size: 14px; color: #333; pointer-events: none;}
+        
+        /* Windows 风格控制按钮 */
+        .win-controls { display: flex; gap: 0; height: 100%; align-items: center; }
+        .win-btn { 
+            width: 36px; height: 100%; border: none; background: transparent; 
+            font-size: 14px; color: #555; cursor: pointer; transition: 0.2s;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .win-btn:hover { background: rgba(0,0,0,0.1); }
+        .btn-close:hover { background: #ff4d4f; color: white; }
+
+        .win-body { flex: 1; position: relative; display: flex; overflow: hidden; background: rgba(255,255,255,0.8); }
+        .win-content { flex: 1; padding: 0; overflow: auto; position: relative;}
+        .win-iframe { width: 100%; height: 100%; border: none; background: white; }
+
+        /* ================= 任务栏 (Dock) ================= */
+        #dock {
+            position: fixed; bottom: 15px; left: 50%; transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 20px; padding: 10px 15px; display: flex; gap: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2); z-index: 9000;
+        }
+        .dock-item {
+            width: 50px; height: 50px; background: rgba(255,255,255,0.85); border-radius: 14px;
+            display: flex; align-items: center; justify-content: center; font-size: 26px; 
+            cursor: pointer; transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+            position: relative;
+        }
+        .dock-item:hover { transform: translateY(-10px) scale(1.15); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        .dock-item::after {
+            content: ''; position: absolute; bottom: -6px; width: 4px; height: 4px; 
+            background: #333; border-radius: 50%; opacity: 0; transition: 0.3s;
+        }
+        .dock-item.running::after { opacity: 1; }
+
+        /* ================= 右键菜单 & 模态框 ================= */
+        .context-menu {
+            position: fixed; background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
+            width: 180px; border-radius: 10px; box-shadow: 0 8px 25px rgba(0,0,0,0.15); 
+            padding: 6px; display: none; z-index: 99999; border: 1px solid rgba(255,255,255,0.5);
+            animation: fadeIn 0.1s ease;
+        }
+        .ctx-item {
+            padding: 8px 12px; font-size: 13px; display: flex; align-items: center; gap: 10px;
+            cursor: pointer; color: #333; border-radius: 6px;
+        }
+        .ctx-item:hover { background: var(--accent-color); color: white; }
+        .ctx-sep { height: 1px; background: #eee; margin: 4px 0; }
+
+        /* 通用输入框样式 */
+        .modern-input {
+            width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 6px; 
+            border: 1px solid #ddd; background: rgba(255,255,255,0.8);
+        }
+        .modern-btn {
+            width: 100%; padding: 10px; background: var(--accent-color); color: white; 
+            border: none; border-radius: 6px; cursor: pointer; font-weight: 600;
+        }
+        .modern-btn:hover { filter: brightness(1.1); }
+
+        /* 加载条 */
+        #progress-toast {
+            position: fixed; top: 20px; right: 20px; width: 300px; 
+            background: rgba(255,255,255,0.9); backdrop-filter: blur(10px);
+            padding: 15px; border-radius: 10px; box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+            z-index: 10000; display: none; transform: translateX(120%); transition: 0.3s;
+        }
+        #progress-toast.show { transform: translateX(0); }
+
+        @keyframes fadeIn { from { opacity:0; transform:scale(0.9); } to { opacity:1; transform:scale(1); } }
+        
+        /* 登录屏 */
+        #login-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #2c3e50; z-index: 100000; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen">
+        <div style="background: white; padding: 40px; border-radius: 20px; text-align: center; width: 350px; box-shadow: 0 20px 50px rgba(0,0,0,0.3);">
+            <div style="width: 80px; height: 80px; background: #333; border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; color: white; font-size: 30px;">
+                <i class="fa-solid fa-cloud"></i>
+            </div>
+            <h2 style="margin-bottom: 20px; color: #333;">Welcome Back</h2>
+            <input type="text" id="uid" class="modern-input" placeholder="用户名" value="admin">
+            <input type="password" id="pwd" class="modern-input" placeholder="密码">
+            <button onclick="App.login()" class="modern-btn">登 录</button>
+        </div>
+    </div>
+
+    <div id="desktop"><div class="icon-grid" id="desktop-grid"></div></div>
+
+    <div id="dock">
+        <div class="dock-item" onclick="App.refreshDesktop()" title="刷新">🔄</div>
+        <div class="dock-item" onclick="App.createWindow('pc','我的电脑','folder','root')" title="我的电脑">💻</div>
+        <div style="width:1px; height:30px; background:rgba(0,0,0,0.2);"></div>
+        <div class="dock-item" onclick="document.getElementById('folder-zip-input').click()" title="上传文件夹 (自动Zip)">📤</div>
+        <div class="dock-item" onclick="App.toggleFullScreen()" title="全屏模式">⛶</div>
+    </div>
+
+    <div id="ctx-menu" class="context-menu">
+        <div class="ctx-item" onclick="App.openSelected()"><i class="fa-regular fa-folder-open"></i> 打开</div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item" onclick="App.renameSelected()"><i class="fa-solid fa-pen"></i> 重命名</div>
+        <div class="ctx-item" onclick="App.deleteSelected()" style="color:#ff4d4f;"><i class="fa-solid fa-trash"></i> 删除 / 卸载</div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item" onclick="App.createFolder()"><i class="fa-solid fa-folder-plus"></i> 新建文件夹</div>
+        <div class="ctx-item" onclick="App.createSimpleLink('bilibili')"><i class="fa-brands fa-bilibili" style="color:#fb7299"></i> 新建B站视频</div>
+        <div class="ctx-item" onclick="App.createSimpleLink('wechat')"><i class="fa-brands fa-weixin" style="color:#07c160"></i> 新建公众号文章</div>
+        <div class="ctx-item" onclick="App.createSimpleLink('link')"><i class="fa-solid fa-link" style="color:#3498db"></i> 新建链接</div>
+        <div class="ctx-item" onclick="App.installH5AppSimple()"><i class="fa-solid fa-gamepad" style="color:#9b59b6"></i> 安装H5应用</div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item" onclick="App.changeWallpaper()"><i class="fa-solid fa-image"></i> 切换壁纸</div>
+    </div>
+
+    <!-- 通用链接模态框 -->
+    <div id="link-modal" class="window" style="display:none; width:400px; height:auto; top:20%; left:calc(50% - 200px); z-index:99999;">
+        <div class="win-header">
+            <div class="win-title" id="link-modal-title">新建链接</div>
+            <div class="win-controls"><button class="win-btn btn-close" onclick="App.closeModal('link-modal')"><i class="fa-solid fa-xmark"></i></button></div>
+        </div>
+        <div style="padding:25px;">
+            <div style="text-align:center; margin-bottom:20px; color: #666;">
+                <i id="link-modal-icon" class="fa-solid fa-link fa-3x" style="color:#3498db"></i>
+                <p style="font-size:12px; margin-top:10px;" id="link-modal-desc">添加自定义链接</p>
+            </div>
+            <input type="text" id="link-title" class="modern-input" placeholder="资源名称">
+            <input type="text" id="link-url" class="modern-input" placeholder="链接地址 (https://...)">
+            <input type="text" id="link-x" class="modern-input" placeholder="X坐标 (默认: 100)" value="100">
+            <input type="text" id="link-y" class="modern-input" placeholder="Y坐标 (默认: 100)" value="100">
+            <input type="hidden" id="link-icon-class" value="fa-solid fa-link">
+            <button onclick="App.submitLink()" class="modern-btn" style="margin-top:10px;">创建</button>
+        </div>
+    </div>
+
+    <!-- H5应用安装模态框 -->
+    <div id="install-modal" class="window" style="display:none; width:380px; height:auto; top:20%; left:calc(50% - 190px); z-index:99999;">
+        <div class="win-header">
+            <div class="win-title">安装 H5 应用</div>
+            <div class="win-controls"><button class="win-btn btn-close" onclick="App.closeModal('install-modal')"><i class="fa-solid fa-xmark"></i></button></div>
+        </div>
+        <div style="padding:25px;">
+            <div style="text-align:center; margin-bottom:20px; color: #666;">
+                <i class="fa-solid fa-gamepad fa-3x"></i>
+                <p style="font-size:12px; margin-top:10px;">请上传包含 index.html 的 Zip 包<br>或使用 Dock 栏的文件夹上传功能</p>
+            </div>
+            <input type="text" id="h5-name" class="modern-input" placeholder="应用名称">
+            <input type="file" id="h5-file" accept=".zip" class="modern-input" style="padding: 5px;">
+            <button onclick="App.installH5App()" class="modern-btn" style="margin-top:10px;">开始安装</button>
+        </div>
+    </div>
+
+    <input type="file" id="file-input" class="hidden-input" style="display:none" onchange="App.handleUpload(this)">
+    <input type="file" id="folder-zip-input" style="display:none" webkitdirectory mozdirectory onchange="App.handleFolderAsZip(this)">
+
+    <div id="progress-toast">
+        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+            <span id="prog-text" style="font-weight:bold; font-size:13px;">处理中...</span>
+            <span id="prog-percent" style="font-size:12px; color:#666;">0%</span>
+        </div>
+        <div style="width:100%; height:6px; background:#eee; border-radius:3px; overflow:hidden;">
+            <div id="prog-bar" style="width:0%; height:100%; background:var(--accent-color); transition:0.2s;"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api'; 
+        
+        const App = {
+            token: localStorage.getItem('token'),
+            windows: [],
+            zIndex: 100,
+            desktopList: [],
+            contextTarget: null,
+            
+            // 拖拽相关
+            isDragging: false, dragEl: null, dragStartX: 0, dragStartY: 0, lastClickX: 100, lastClickY: 100,
+
+            init() {
+                // 壁纸初始化
+                this.changeWallpaper();
+
+                if (this.token) {
+                    this.refreshDesktop().catch(() => {
+                        localStorage.removeItem('token');
+                        document.getElementById('login-screen').style.display = 'flex';
+                    });
+                    document.getElementById('login-screen').style.display = 'none';
+                }
+
+                // 全局事件
+                document.addEventListener('mousedown', this.onDragStart.bind(this));
+                document.addEventListener('mousemove', this.onDragMove.bind(this));
+                document.addEventListener('mouseup', this.onDragEnd.bind(this));
+                
+                // 右键菜单
+                document.addEventListener('contextmenu', e => {
+                    e.preventDefault();
+                    this.contextTarget = e.target.closest('.icon');
+                    this.lastClickX = e.pageX; this.lastClickY = e.pageY; // 记录位置供新建使用
+                    const menu = document.getElementById('ctx-menu');
+                    menu.style.display = 'block';
+                    menu.style.left = Math.min(e.pageX, window.innerWidth - 180) + 'px';
+                    menu.style.top = Math.min(e.pageY, window.innerHeight - 200) + 'px';
+                });
+                document.addEventListener('click', (e) => {
+                    if(!e.target.closest('.context-menu')) document.getElementById('ctx-menu').style.display='none';
+                });
+
+                // 外部文件拖拽
+                document.addEventListener('dragover', e => e.preventDefault());
+                document.addEventListener('drop', this.onExternalDrop.bind(this));
+            },
+
+            // --- 视觉效果 ---
+            changeWallpaper() {
+                // 使用 Unsplash 源，科技/自然主题
+                const url = `https://images.unsplash.com/photo-1477346611705-65d1883cee1e?auto=format&fit=crop&w=1920&q=80`; 
+                // 你也可以改用随机API: https://source.unsplash.com/random/1920x1080/?landscape
+                document.body.style.backgroundImage = `url('${url}')`;
+            },
+            toggleFullScreen() {
+                if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+                else if (document.exitFullscreen) document.exitFullscreen();
+            },
+
+            // --- API 基础 ---
+            async req(url, method='GET', data=null, isFile=false) {
+                const headers = { 'Authorization': `Bearer ${this.token}` };
+                if (!isFile) headers['Content-Type'] = 'application/json';
+                const opts = { method, headers };
+                if (data) opts.body = isFile ? data : JSON.stringify(data);
+                
+                const res = await fetch(API_BASE + url, opts);
+                if (res.status === 401) { location.reload(); throw new Error('Auth'); }
+                if (!res.ok) throw new Error(`Error ${res.status}`);
+                return method === 'DELETE' ? null : res.json();
+            },
+
+            // --- 登录 ---
+            async login() {
+                const u = document.getElementById('uid').value;
+                const p = document.getElementById('pwd').value;
+                try {
+                    const res = await fetch(API_BASE + '/token/', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: u, password: p })
+                    });
+                    if (!res.ok) throw new Error();
+                    const data = await res.json();
+                    this.token = data.access;
+                    localStorage.setItem('token', this.token);
+                    document.getElementById('login-screen').style.display = 'none';
+                    this.refreshDesktop();
+                } catch (e) { alert('登录失败'); }
+            },
+
+            // --- 桌面渲染 ---
+            async refreshDesktop() {
+                const grid = document.getElementById('desktop-grid');
+                grid.innerHTML = '';
+                const data = await this.req('/desktop/?parent_id=root');
+                this.desktopList = data.results || data || [];
+
+                this.desktopList.forEach(item => {
+                    const el = document.createElement('div');
+                    el.className = 'icon';
+                    el.dataset.id = item.id;
+                    el.dataset.title = item.title;
+                    el.ondblclick = () => this.openItem(item);
+                    
+                    // 图标内容生成
+                    let iconInner = this.getIconHtml(item);
+                    
+                    // 视频缩略图逻辑 (如果文件是视频，且有链接)
+                    if(item.type === 'resource' && item.data.kind === 'video' && item.data.file) {
+                        this.generateVideoThumbnail(item.data.file, el);
+                    }
+
+                    el.innerHTML = `
+                        <div class="icon-body" id="icon-body-${item.id}">${iconInner}</div>
+                        <div class="icon-text">${item.title}</div>
+                    `;
+                    grid.appendChild(el);
+                });
+            },
+
+            getIconHtml(item) {
+                if (item.type === 'category') return `<i class="fa-solid fa-folder" style="color:#f1c40f"></i>`;
+                if (item.data.icon_class) return `<i class="${item.data.icon_class}" style="color:var(--accent-color)"></i>`;
+                return `<i class="fa-solid fa-file" style="color:#aaa"></i>`;
+            },
+
+            // 提取视频首帧
+            generateVideoThumbnail(url, iconEl) {
+                const video = document.createElement('video');
+                video.src = url;
+                video.crossOrigin = 'anonymous'; // 关键：允许跨域截屏
+                video.currentTime = 1; // 截取第1秒
+                video.onloadeddata = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+                    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const thumbUrl = canvas.toDataURL();
+                    const body = iconEl.querySelector('.icon-body');
+                    body.innerHTML = `<img src="${thumbUrl}" class="icon-thumb" style="border-radius:12px;">`;
+                };
+            },
+
+            // --- 窗口系统 (Windows 风格) ---
+            createWindow(id, title, type, content) {
+                // 如果窗口已最小化，恢复它
+                const exist = document.getElementById('win-' + id);
+                if (exist) {
+                    this.restoreWin(id);
+                    return;
+                }
+
+                const win = document.createElement('div');
+                win.className = 'window open';
+                win.id = 'win-' + id;
+                win.style.zIndex = ++this.zIndex;
+                win.style.width = '800px'; win.style.height = '500px';
+                win.style.left = '100px'; win.style.top = '80px';
+                
+                // 点击置顶
+                win.onmousedown = () => { win.style.zIndex = ++this.zIndex; };
+
+                let bodyHtml = '';
+                if (type === 'folder') {
+                    bodyHtml = `<div class="win-content" id="content-${id}" style="padding:10px; display:flex; flex-wrap:wrap; align-content:flex-start;">加载中...</div>`;
+                } else if (type === 'iframe') {
+                    bodyHtml = `<iframe src="${content}" class="win-iframe"></iframe>`;
+                } else {
+                    bodyHtml = `<div class="win-content" style="padding:20px; background:white;">${content}</div>`;
+                }
+
+                // Windows 标准按钮布局: 最小化(_) 最大化(□) 关闭(X)
+                win.innerHTML = `
+                    <div class="win-header" onmousedown="App.dragWin(event, '${id}')">
+                        <div class="win-title">${title}</div>
+                        <div class="win-controls">
+                            <button class="win-btn" onclick="App.minWin('${id}')" title="最小化"><i class="fa-solid fa-minus"></i></button>
+                            <button class="win-btn" onclick="App.maxWin('${id}')" title="最大化"><i class="fa-regular fa-square"></i></button>
+                            <button class="win-btn btn-close" onclick="App.closeWin('${id}')" title="关闭"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                    </div>
+                    <div class="win-body">${bodyHtml}</div>
+                `;
+                
+                document.body.appendChild(win);
+                this.windows.push({id, el: win});
+                this.updateDock(id, true); // 添加到 Dock
+                
+                if (type === 'folder') this.loadFolder(content, 'win-'+id);
+            },
+
+            // 窗口控制逻辑
+            closeWin(id) {
+                document.getElementById('win-' + id)?.remove();
+                this.windows = this.windows.filter(w => w.id !== id);
+                this.updateDock(id, false); // 从 Dock 移除指示器
+            },
+            minWin(id) {
+                const win = document.getElementById('win-' + id);
+                win.classList.add('minimized');
+                win.classList.remove('open');
+            },
+            restoreWin(id) {
+                const win = document.getElementById('win-' + id);
+                win.classList.remove('minimized');
+                win.classList.add('open');
+                win.style.zIndex = ++this.zIndex;
+            },
+            maxWin(id) {
+                const win = document.getElementById('win-' + id);
+                if (win.dataset.maximized === 'true') {
+                    // 还原
+                    win.style.width = '800px'; win.style.height = '500px'; 
+                    win.style.left = '100px'; win.style.top = '80px';
+                    win.style.borderRadius = '10px';
+                    win.dataset.maximized = 'false';
+                } else {
+                    // 全屏
+                    win.style.width = '100%'; win.style.height = 'calc(100% - 70px)'; // 留出任务栏
+                    win.style.left = '0'; win.style.top = '0';
+                    win.style.borderRadius = '0';
+                    win.dataset.maximized = 'true';
+                }
+            },
+            // 简单的任务栏状态更新 (示例)
+            updateDock(id, isOpen) {
+                // 实际项目中可以动态创建 Dock 图标，这里简单处理
+                console.log(`Window ${id} state: ${isOpen}`);
+            },
+
+            // --- 核心功能 ---
+            
+            // 1. 打开逻辑 (支持 H5 应用和普通文件)
+            openItem(item) {
+                if (item.type === 'category') {
+                    this.createWindow(item.id, item.title, 'folder', item.id);
+                } else if (item.type === 'resource') {
+                    const link = item.data.link || item.data.file;
+                    if (!link) return;
+                    
+                    // 如果是 H5 应用 (根据路径判断)
+                    if (item.data.kind === 'link' && link.includes('/h5apps/')) {
+                         window.open(link, item.title, "width=1280,height=720");
+                         return;
+                    }
+
+                    const ext = link.split('.').pop().toLowerCase();
+                    // 视频/PDF/图片 -> Iframe
+                    if (['mp4','pdf','png','jpg','html'].includes(ext)) {
+                        this.createWindow('res-'+item.id, item.title, 'iframe', link);
+                    } 
+                    // Office -> 预览
+                    else if (['docx'].includes(ext)) this.previewDocx(item.title, link);
+                    else if (['xlsx'].includes(ext)) this.previewExcel(item.title, link);
+                    else window.open(link, '_blank');
+                }
+            },
+
+            // 1. 文件上传
+            async handleUpload(input) {
+                const files = input.files;
+                if (!files.length) return;
+
+                this.showProgress(true, 0, '上传中...');
+
+                try {
+                    for(let i=0; i<files.length; i++) {
+                        const fd = new FormData();
+                        fd.append('file', files[i]);
+                        fd.append('parent_id', 'root');
+                        fd.append('x', this.lastClickX);
+                        fd.append('y', this.lastClickY);
+
+                        try {
+                            await this.req('/desktop/upload_file/', 'POST', fd, true);
+                        } catch(e) {
+                            console.error('上传失败', e);
+                        }
+
+                        this.showProgress(true, Math.round(((i+1)/files.length)*100), `上传 ${i+1}/${files.length}`);
+                    }
+                    setTimeout(() => { this.showProgress(false); this.refreshDesktop(); }, 500);
+                } catch(e) {
+                    alert('上传失败: ' + e.message);
+                    this.showProgress(false);
+                }
+            },
+
+            // 2. 文件夹/ZIP 处理 (前端压缩文件夹)
+            async handleFolderAsZip(input) {
+                const files = input.files;
+                if (!files.length) return;
+
+                this.showProgress(true, 0, '正在压缩文件夹...');
+                
+                const zip = new JSZip();
+                // 保持文件夹结构
+                for (let file of files) {
+                    // webkitRelativePath 例如: "MyGame/css/style.css"
+                    zip.file(file.webkitRelativePath, file);
+                }
+
+                // 生成 Zip Blob
+                const content = await zip.generateAsync({type:"blob"}, (meta) => {
+                    this.showProgress(true, Math.round(meta.percent), '正在压缩...');
+                });
+
+                // 构造表单上传
+                const fd = new FormData();
+                const folderName = files[0].webkitRelativePath.split('/')[0];
+                fd.append('file', content, folderName + '.zip'); // 伪装成 zip 文件
+                fd.append('title', folderName);
+                fd.append('icon_class', 'fa-solid fa-folder-tree'); // 默认图标
+                
+                // 上传到后端 install_h5_app 接口 (后端会自动解压)
+                this.showProgress(true, 50, '正在上传...');
+                try {
+                    await this.req('/desktop/install_h5_app/', 'POST', fd, true);
+                    this.showProgress(true, 100, '完成!');
+                    setTimeout(() => { this.showProgress(false); this.refreshDesktop(); }, 1000);
+                } catch(e) {
+                    alert('上传失败: ' + e.message);
+                    this.showProgress(false);
+                }
+            },
+
+            // 3. 新建文件夹 (真实调用)
+            async createFolder() {
+                const name = prompt("请输入文件夹名称", "新建文件夹");
+                if (!name) return;
+                await this.req('/desktop/create_folder/', 'POST', {
+                    name: name, parent_id: 'root', x: this.lastClickX, y: this.lastClickY
+                });
+                this.refreshDesktop();
+            },
+
+            // --- 辅助功能 ---
+            loadFolder: async function(pid, winId) {
+                const container = document.getElementById(`content-${winId.replace('win-','')}`);
+                const data = await this.req(`/desktop/?parent_id=${pid}`);
+                const list = data.results || [];
+                container.innerHTML = '';
+                list.forEach(item => {
+                    const d = document.createElement('div');
+                    d.className = 'icon'; d.style.margin='5px';
+                    d.innerHTML = `<div class="icon-body" style="font-size:24px; width:50px; height:50px;">${this.getIconHtml(item)}</div><div class="icon-text" style="color:#333; text-shadow:none;">${item.title}</div>`;
+                    d.ondblclick = () => this.openItem(item);
+                    container.appendChild(d);
+                });
+            },
+            
+            previewDocx: async function(title, url) {
+                this.createWindow('docx'+Date.now(), title, 'html', '<div id="doc-v">加载中...</div>');
+                const buf = await (await fetch(url)).arrayBuffer();
+                const res = await mammoth.convertToHtml({arrayBuffer: buf});
+                document.getElementById('doc-v').innerHTML = `<div style="padding:20px; line-height:1.6;">${res.value}</div>`;
+            },
+
+            // 拖拽窗口
+            dragWin(e, id) {
+                const win = document.getElementById('win-' + id);
+                win.style.zIndex = ++this.zIndex;
+                if(win.dataset.maximized === 'true') return; // 全屏不可拖拽
+
+                let startX = e.clientX, startY = e.clientY;
+                let startLeft = win.offsetLeft, startTop = win.offsetTop;
+                
+                const move = (ev) => {
+                    win.style.left = startLeft + (ev.clientX - startX) + 'px';
+                    win.style.top = startTop + (ev.clientY - startY) + 'px';
+                };
+                const stop = () => {
+                    document.removeEventListener('mousemove', move);
+                    document.removeEventListener('mouseup', stop);
+                };
+                document.addEventListener('mousemove', move);
+                document.addEventListener('mouseup', stop);
+            },
+            
+            // 拖拽图标
+            onDragStart(e) {
+                const icon = e.target.closest('.icon');
+                if(!icon || e.target.closest('.window')) return;
+                this.isDragging = true; this.dragEl = icon;
+                this.dragStartX = e.clientX; this.dragStartY = e.clientY;
+            },
+            onDragMove(e) {
+                if(!this.isDragging || !this.dragEl) return;
+                const dx = e.clientX - this.dragStartX;
+                const dy = e.clientY - this.dragStartY;
+                this.dragEl.style.transform = `translate(${dx}px, ${dy}px)`;
+            },
+            onDragEnd(e) {
+                if(this.dragEl) {
+                    // 检测是否拖放到了文件夹上
+                    const draggedIconId = this.dragEl.dataset.id;
+                    const draggedItem = this.desktopList.find(i => i.id == draggedIconId);
+                    
+                    // 获取鼠标位置下的元素
+                    const elementBelow = document.elementFromPoint(e.clientX, e.clientY);
+                    const folderEl = elementBelow ? elementBelow.closest('.icon') : null;
+                    
+                    if (folderEl && folderEl !== this.dragEl) {
+                        const folderIconId = folderEl.dataset.id;
+                        const folderItem = this.desktopList.find(i => i.id == folderIconId);
+                        
+                        // 如果目标是一个文件夹，执行移动操作
+                        if (folderItem && folderItem.type === 'category') {
+                            // 将文件移动到文件夹
+                            this.moveToFolder(draggedIconId, folderIconId);
+                        }
+                    }
+                    
+                    this.dragEl.style.transform = 'none';
+                    this.isDragging = false; 
+                    this.dragEl = null;
+                }
+            },
+            
+            // 外部文件拖拽上传
+            async onExternalDrop(e) {
+                e.preventDefault();
+                const files = e.dataTransfer.files;
+                if (!files.length) return;
+
+                const dropX = e.clientX || this.lastClickX;
+                const dropY = e.clientY || this.lastClickY;
+
+                this.showProgress(true, 0, '上传中...');
+                
+                try {
+                    for(let i=0; i<files.length; i++) {
+                        const fd = new FormData();
+                        fd.append('file', files[i]);
+                        fd.append('parent_id', 'root');
+                        fd.append('x', dropX); 
+                        fd.append('y', dropY);
+                        
+                        try {
+                            await this.req('/desktop/upload_file/', 'POST', fd, true);
+                        } catch(e) {
+                            console.error('上传失败', e);
+                        }
+                        
+                        this.showProgress(true, Math.round(((i+1)/files.length)*100), `上传 ${i+1}/${files.length}`);
+                    }
+                    setTimeout(() => { this.showProgress(false); this.refreshDesktop(); }, 500);
+                } catch(e) {
+                    alert('上传失败: ' + e.message);
+                    this.showProgress(false);
+                }
+            },
+            
+            showProgress(show, percent=0, text='') {
+                const el = document.getElementById('progress-toast');
+                el.className = show ? 'show' : '';
+                if(show) {
+                    document.getElementById('prog-bar').style.width = percent + '%';
+                    document.getElementById('prog-percent').innerText = percent + '%';
+                    document.getElementById('prog-text').innerText = text;
+                }
+            },
+
+            // 简化版 - 创建链接（用prompt）
+            async createSimpleLink(type) {
+                document.getElementById('ctx-menu').style.display = 'none';
+
+                let title = '';
+                let link = '';
+                let icon = '';
+
+                if (type === 'bilibili') {
+                    title = prompt('请输入B站视频名称', 'B站视频');
+                    if (!title) return;
+                    link = prompt('请输入B站视频链接', 'https://www.bilibili.com/video/');
+                    if (!link) return;
+                    icon = 'fa-brands fa-bilibili';
+                } else if (type === 'wechat') {
+                    title = prompt('请输入公众号文章标题', '公众号文章');
+                    if (!title) return;
+                    link = prompt('请输入公众号文章链接', 'https://mp.weixin.qq.com/');
+                    if (!link) return;
+                    icon = 'fa-brands fa-weixin';
+                } else {
+                    title = prompt('请输入资源名称', '自定义链接');
+                    if (!title) return;
+                    link = prompt('请输入链接地址', 'https://');
+                    if (!link) return;
+                    icon = 'fa-solid fa-link';
+                }
+
+                try {
+                    await this.req('/desktop/create_link/', 'POST', {
+                        title, 
+                        link, 
+                        icon_class: icon, 
+                        x: this.lastClickX, 
+                        y: this.lastClickY,
+                        parent_id: 'root'
+                    });
+                    this.refreshDesktop();
+                } catch(e) {
+                    alert('创建失败: ' + e.message);
+                }
+            },
+
+            // 简化版 - 安装H5应用（用prompt，支持上传文件夹自动打包）
+            async installH5AppSimple() {
+                document.getElementById('ctx-menu').style.display = 'none';
+
+                const name = prompt('请输入应用名称', '我的应用');
+                if (!name) return;
+
+                // 触发文件夹选择
+                const folderInput = document.createElement('input');
+                folderInput.type = 'file';
+                folderInput.webkitdirectory = true;
+                folderInput.mozdirectory = true;
+                folderInput.style.display = 'none';
+
+                folderInput.onchange = async (e) => {
+                    const files = e.target.files;
+                    if (!files.length) return;
+
+                    // 提示正在处理
+                    alert('正在打包文件夹，请稍候...');
+
+                    try {
+                        // 使用JSZip打包文件夹
+                        const zip = new JSZip();
+                        const folderName = files[0].webkitRelativePath.split('/')[0] || name;
+
+                        // 遍历文件夹中的所有文件
+                        for (let i = 0; i < files.length; i++) {
+                            const file = files[i];
+                            const relativePath = file.webkitRelativePath || file.name;
+
+                            // 读取文件内容
+                            const fileContent = await file.arrayBuffer();
+                            zip.file(relativePath, fileContent);
+                        }
+
+                        this.showProgress(true, 50, '正在打包...');
+
+                        // 生成zip文件
+                        const zipBlob = await zip.generateAsync({type: 'blob'});
+
+                        // 创建FormData上传
+                        const fd = new FormData();
+                        fd.append('title', name);
+                        fd.append('file', zipBlob, `${folderName}.zip`);
+                        fd.append('icon_class', 'fa-solid fa-gamepad');
+
+                        this.showProgress(true, 70, '正在上传...');
+
+                        // 上传到服务器
+                        await this.req('/desktop/install_h5_app/', 'POST', fd, true);
+                        this.showProgress(true, 100, '安装成功');
+                        setTimeout(() => { this.showProgress(false); this.refreshDesktop(); }, 1000);
+
+                    } catch(e) {
+                        console.error('打包失败:', e);
+                        alert('打包失败: ' + e.message);
+                        this.showProgress(false);
+                    }
+                };
+
+                folderInput.click();
+            },
+
+            async submitLink() {
+                const title = document.getElementById('link-title').value;
+                const link = document.getElementById('link-url').value;
+                const icon = document.getElementById('link-icon-class').value;
+                const x = parseInt(document.getElementById('link-x').value) || 100;
+                const y = parseInt(document.getElementById('link-y').value) || 100;
+                
+                if (!title || !link) {
+                    alert('请填写完整的资源名称和链接地址');
+                    return;
+                }
+                
+                try {
+                    await this.req('/desktop/create_link/', 'POST', {
+                        title, 
+                        link, 
+                        icon_class: icon, 
+                        x, 
+                        y,
+                        parent_id: 'root'
+                    });
+                    this.closeModal('link-modal');
+                    this.refreshDesktop();
+                } catch(e) {
+                    alert('创建失败: ' + e.message);
+                }
+            },
+            
+            // H5应用安装
+            showInstallModal() {
+                document.getElementById('ctx-menu').style.display = 'none';
+                document.getElementById('install-modal').style.display = 'block';
+            },
+            
+            async installH5App() {
+                const name = document.getElementById('h5-name').value;
+                const file = document.getElementById('h5-file').files[0];
+                if (!name || !file) return alert('请填写名称并选择ZIP文件');
+
+                const fd = new FormData();
+                fd.append('title', name);
+                fd.append('file', file);
+                fd.append('icon_class', 'fa-solid fa-gamepad');
+
+                this.showProgress(true, 10, '正在安装...');
+                try {
+                    await this.req('/desktop/install_h5_app/', 'POST', fd, true);
+                    this.showProgress(true, 100, '安装成功');
+                    this.closeModal('install-modal');
+                    setTimeout(() => { this.showProgress(false); this.refreshDesktop(); }, 1000);
+                } catch(e) {
+                    alert('安装失败');
+                    this.showProgress(false);
+                }
+            },
+            
+            async moveToFolder(fileId, folderId) {
+                try {
+                    // 获取目标文件夹的真实 ID
+                    let targetParentId = null;
+
+                    const folderIcon = this.desktopList.find(i => i.id == folderId);
+                    if (folderIcon && folderIcon.type === 'category') {
+                        targetParentId = folderIcon.data.id || folderIcon.id;
+                    } else {
+                        return;
+                    }
+
+                    // 发送请求
+                    await this.req(`/desktop/${fileId}/move/`, 'PATCH', { parent_id: targetParentId });
+
+                    // 刷新 UI
+                    this.refreshDesktop();
+
+                    // 检查是否有打开的目标文件夹窗口，如果有，也刷新它
+                    this.windows.forEach(winObj => {
+                        const contentDiv = winObj.el.querySelector('.win-content');
+                        if(contentDiv && contentDiv.dataset.currentFolder == targetParentId) {
+                            this.loadFolder(targetParentId, winObj.id);
+                        }
+                    });
+
+                } catch(e) {
+                    alert("移动失败: " + e.message);
+                    this.refreshDesktop();
+                }
+            },
+            
+            async deleteSelected() {
+                if (!this.contextTarget) return;
+                
+                const itemId = this.contextTarget.dataset.id;
+                const item = this.desktopList.find(i => i.id == itemId);
+                
+                if (!item) {
+                    document.getElementById('ctx-menu').style.display = 'none';
+                    return;
+                }
+                
+                const itemType = item.type === 'category' ? '文件夹' : '文件';
+                
+                if (confirm(`确定删除 ${itemType} "${item.title}" 吗？`)) {
+                    try {
+                        await this.req(`/desktop/${itemId}/uninstall/`, 'DELETE');
+                        this.refreshDesktop();
+                    } catch(e) {
+                        alert(`删除失败: ${e.message}`);
+                    }
+                }
+                document.getElementById('ctx-menu').style.display = 'none';
+            },
+            
+            closeModal(id) { document.getElementById(id).style.display='none'; }
+        };
+
+        App.init();
+    </script>
+    
+    <!-- JWT 认证管理 -->
+    <script>
+        const API_BASE = '/api';
+        
+        // 检查登录状态
+        function checkAuth() {
+            const token = localStorage.getItem('access_token');
+            const refreshToken = localStorage.getItem('refresh_token');
+            
+            if (!token || !refreshToken) {
+                showLoginPrompt();
+                return false;
+            }
+            
+            return true;
+        }
+        
+        // 显示登录提示
+        function showLoginPrompt() {
+            const overlay = document.createElement('div');
+            overlay.className = 'login-overlay';
+            overlay.innerHTML = `
+                <div class="login-prompt">
+                    <h3>请先登录</h3>
+                    <p>您需要登录才能访问桌面系统</p>
+                    <button class="login-btn" onclick="goToLogin()">前往登录</button>
+                    <button class="login-btn" onclick="tryGuestMode()" style="background: #666;">访客模式</button>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+        }
+        
+        // 跳转到登录页面
+        function goToLogin() {
+            window.location.href = '/login.html';
+        }
+        
+        // 尝试访客模式
+        function tryGuestMode() {
+            // 尝试使用默认账户登录
+            attemptGuestLogin();
+        }
+        
+        // 尝试访客登录
+        async function attemptGuestLogin() {
+            try {
+                const response = await fetch(`${API_BASE}/token/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: 'guest',
+                        password: 'guest123'
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('access_token', data.access);
+                    localStorage.setItem('refresh_token', data.refresh);
+                    location.reload();
+                } else {
+                    alert('访客账户不可用，请联系管理员创建账户');
+                }
+            } catch (error) {
+                alert('网络错误，请检查后端服务');
+            }
+        }
+        
+        // 刷新token
+        async function refreshToken() {
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (!refreshToken) return false;
+            
+            try {
+                const response = await fetch(`${API_BASE}/token/refresh/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ refresh: refreshToken })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('access_token', data.access);
+                    return true;
+                }
+            } catch (error) {
+                console.error('Token refresh failed:', error);
+            }
+            return false;
+        }
+        
+        // 获取认证头
+        function getAuthHeaders() {
+            const token = localStorage.getItem('access_token');
+            return {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            };
+        }
+        
+        // 修改API请求函数，添加认证
+        function createAuthenticatedAPI() {
+            const originalReq = window.req;
+            
+            window.req = async function(url, method = 'GET', data = null) {
+                // 检查认证
+                if (!checkAuth()) {
+                    throw new Error('未认证');
+                }
+                
+                const headers = getAuthHeaders();
+                
+                try {
+                    const response = await fetch(API_BASE + url, {
+                        method: method,
+                        headers: headers,
+                        body: data ? JSON.stringify(data) : null
+                    });
+                    
+                    // 如果是401错误，尝试刷新token
+                    if (response.status === 401) {
+                        const refreshed = await refreshToken();
+                        if (refreshed) {
+                            // 重新发送请求
+                            return await window.req(url, method, data);
+                        } else {
+                            // 刷新失败，跳转到登录
+                            goToLogin();
+                            return null;
+                        }
+                    }
+                    
+                    return response;
+                } catch (error) {
+                    console.error('API request failed:', error);
+                    throw error;
+                }
+            };
+        }
+        
+        // 页面加载时检查认证
+        document.addEventListener('DOMContentLoaded', function() {
+            if (checkAuth()) {
+                createAuthenticatedAPI();
+            }
+        });
+        
+        // 添加登出功能
+        function logout() {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            location.reload();
+        }
+        
+        // 在任务栏添加用户信息
+        function addUserInfoToTaskbar() {
+            const taskbar = document.querySelector('.taskbar');
+            if (taskbar) {
+                const userInfo = document.createElement('div');
+                userInfo.className = 'user-info';
+                userInfo.innerHTML = `
+                    <span style="color: white; margin-right: 10px;">用户: ${getUsername() || 'Guest'}</span>
+                    <button onclick="logout()" style="background: transparent; border: 1px solid white; color: white; padding: 2px 8px; border-radius: 3px; cursor: pointer;">登出</button>
+                `;
+                taskbar.appendChild(userInfo);
+            }
+        }
+        
+        // 获取用户名（简化版）
+        function getUsername() {
+            // 可以从token解码或从API获取
+            return '用户';
+        }
+        
+        // 初始化用户界面
+        if (checkAuth()) {
+            document.addEventListener('DOMContentLoaded', function() {
+                addUserInfoToTaskbar();
+            });
+        }
+    </script>
+</body>
+</html>

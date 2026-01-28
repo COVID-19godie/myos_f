@@ -57,8 +57,8 @@ def api_login(request):
 def api_logout(request):
     """API退出登录接口"""
     try:
-        # 删除用户的token
-        Token.objects.filter(user=request.user).delete()
+        # JWT是无状态的，客户端只需删除token即可
+        # 这里可以添加其他清理逻辑，如清除服务器端的刷新token等
         
         return Response({
             'success': True,
